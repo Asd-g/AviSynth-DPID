@@ -10,12 +10,16 @@ class dpid : public GenericVideoFilter
     double src_left[3], src_top[3];
     int process[3];
     int64_t read_chromaloc;
+    int planes_y[3], planes_r[3];
+    int* planes;
+    int planecount;
     double hSubS, vSubS;
     bool v8;
+    bool colsp;
 
     template <typename T>
     PVideoFrame dpidProcess(PVideoFrame& dst, PVideoFrame& src1, PVideoFrame& src2, IScriptEnvironment* env);
-    PVideoFrame (dpid::*proc)(PVideoFrame& dst, PVideoFrame& src1, PVideoFrame& src2, IScriptEnvironment* env);
+    PVideoFrame(dpid::* proc)(PVideoFrame& dst, PVideoFrame& src1, PVideoFrame& src2, IScriptEnvironment* env);
 
 public:
     dpid(PClip _child, PClip _clip, int width, int height, double lambdaY, double lambdaU, double lamdbaV, double src_leftY, double src_leftU, double src_leftV, double src_topY,
@@ -50,11 +54,6 @@ AVS_FORCEINLINE double contribution(double f, double x, double y, double sx, dou
 template <typename T>
 PVideoFrame dpid::dpidProcess(PVideoFrame& dst, PVideoFrame& src1, PVideoFrame& src2, IScriptEnvironment* env)
 {
-    const int planes_y[3] = { PLANAR_Y, PLANAR_U, PLANAR_V };
-    const int planes_r[3] = { PLANAR_R, PLANAR_G, PLANAR_B };
-    const int* planes = (vi.IsRGB()) ? planes_r : planes_y;
-    const int planecount = std::min(vi.NumComponents(), 3);
-
     for (int i = 0; i < planecount; ++i)
     {
         if (process[i] == 3)
@@ -68,35 +67,48 @@ PVideoFrame dpid::dpidProcess(PVideoFrame& dst, PVideoFrame& src1, PVideoFrame& 
             const int dst_h = src2->GetHeight(planes[i]);
             const T* srcp = reinterpret_cast<const T*>(src1->GetReadPtr(planes[i]));
             const T* downp = reinterpret_cast<const T*>(src2->GetReadPtr(planes[i]));
-            T * dstp = reinterpret_cast<T*>(dst->GetWritePtr(planes[i]));
+            T* dstp = reinterpret_cast<T*>(dst->GetWritePtr(planes[i]));
 
-            double _src_left, _src_top;
-            if (i != 0)
-            {                
-                const int chromaLocation = [&]() {
+            bool check = i != 0 && colsp;
+
+            const int chromaLocation = [&]() {
+                if (check)
+                {
                     if (read_chromaloc == -1)
                     {
                         const AVSMap* props = env->getFramePropsRO(src2);
-                        return (env->propNumElements(props, "_ChromaLocation") > 0) ? env->propGetInt(props, "_ChromaLocation", 0, nullptr) : 0;
+                        return (env->propNumElements(props, "_ChromaLocation") > 0) ? static_cast<int>(env->propGetInt(props, "_ChromaLocation", 0, nullptr)) : 0;
                     }
                     else
-                        return read_chromaloc;
-                }();
+                        return static_cast<int>(read_chromaloc);
+                }
+                else
+                    return 0;
+            }();
 
-                const double hCPlace = (chromaLocation == 0 || chromaLocation == 2 || chromaLocation == 4) ? (0.5 - hSubS / 2) : 0.0;
-                const double hScale = static_cast<double>(dst_w) / static_cast<double>(src_w);
+            const double _src_left = [&]() {
+                if (check)
+                {
+                    const double hCPlace = (chromaLocation == 0 || chromaLocation == 2 || chromaLocation == 4) ? (0.5 - hSubS / 2) : 0.0;
+                    const double hScale = static_cast<double>(dst_w) / static_cast<double>(src_w);
 
-                const double vCPlace = (chromaLocation == 2 || chromaLocation == 3) ? (0.5 - vSubS / 2) : ((chromaLocation == 4 || chromaLocation == 5) ? (vSubS / 2 - 0.5) : 0.0);
-                const double vScale = static_cast<double>(dst_h) / static_cast<double>(src_h);
+                    return ((src_left[i] - hCPlace) * hScale + hCPlace) / hScale / hSubS;
+                }
+                else
+                    return src_left[i];
+            }();
 
-                _src_left = ((src_left[i] - hCPlace) * hScale + hCPlace) / hScale / hSubS;
-                _src_top = ((src_top[i] - vCPlace) * vScale + vCPlace) / vScale / vSubS;
-            }
-            else
-            {
-                _src_left = src_left[i];
-                _src_top = src_top[i];
-            }
+            const double _src_top = [&]() {
+                if (check)
+                {
+                    const double vCPlace = (chromaLocation == 2 || chromaLocation == 3) ? (0.5 - vSubS / 2) : ((chromaLocation == 4 || chromaLocation == 5) ? (vSubS / 2 - 0.5) : 0.0);
+                    const double vScale = static_cast<double>(dst_h) / static_cast<double>(src_h);
+
+                    return ((src_top[i] - vCPlace) * vScale + vCPlace) / vScale / vSubS;
+                }
+                else
+                    return src_top[i];
+            }();
 
             const double scale_x = static_cast<double>(src_w) / dst_w;
             const double scale_y = static_cast<double>(src_h) / dst_h;
@@ -107,6 +119,7 @@ PVideoFrame dpid::dpidProcess(PVideoFrame& dst, PVideoFrame& src1, PVideoFrame& 
                 {
                     // avg = RemoveGrain(down, 11)
                     double avg = 0.0;
+
                     for (int inner_y = -1; inner_y <= 1; ++inner_y)
                     {
                         const int y = std::clamp(outer_y + inner_y, 0, dst_h - 1);
@@ -140,7 +153,7 @@ PVideoFrame dpid::dpidProcess(PVideoFrame& dst, PVideoFrame& src1, PVideoFrame& 
                         for (int inner_x = sxr; inner_x < exr; ++inner_x)
                         {
                             T pixel = srcp[inner_y * src_stride + inner_x];
-                            weight = contribution(std::pow(std::abs(avg - static_cast<double>(pixel)), lambda[i]), static_cast<double>(inner_x), static_cast<double>(inner_y), sx, ex, sy, ey);
+                            const double weight = contribution(std::pow(std::abs(avg - static_cast<double>(pixel)), lambda[i]), static_cast<double>(inner_x), static_cast<double>(inner_y), sx, ex, sy, ey);
 
                             sum_pixel += weight * pixel;
                             sum_weight += weight;
@@ -206,15 +219,21 @@ dpid::dpid(PClip _child, PClip _clip, int width, int height, double lambdaY, dou
         vi.height = height;
     }
 
-    const int planes[3] = { y, u, v };
-    const int planecount = std::min(vi.NumComponents(), 3);
+    const int pl_y[3] = { PLANAR_Y, PLANAR_U, PLANAR_V };
+    const int pl_r[3] = { PLANAR_R, PLANAR_G, PLANAR_B };
+    std::copy(std::begin(pl_y), std::end(pl_y), std::begin(planes_y));
+    std::copy(std::begin(pl_r), std::end(pl_r), std::begin(planes_r));
+    planes = (vi.IsRGB()) ? planes_r : planes_y;
+    const int p[3] = { y, u, v };
+    planecount = std::min(vi.NumComponents(), 3);
+
     for (int i = 0; i < planecount; ++i)
     {
         if (vi.IsRGB())
             process[i] = 3;
         else
         {
-            switch (planes[i])
+            switch (p[i])
             {
                 case 3: process[i] = 3; break;
                 case 2: process[i] = 2; break;
@@ -239,12 +258,16 @@ dpid::dpid(PClip _child, PClip _clip, int width, int height, double lambdaY, dou
 
     if (!v8)
         read_chromaloc = (read_chromaloc == -1) ? 0 : read_chromaloc;
+
+    colsp = !vi.IsRGB() && !vi.Is444();
 }
 
 PVideoFrame __stdcall dpid::GetFrame(int n, IScriptEnvironment* env)
 {
+    PVideoFrame src = child->GetFrame(n, env);
     PVideoFrame src1 = clip->GetFrame(n, env);
-    return (this->*proc)((v8) ? env->NewVideoFrameP(vi, &src1) : env->NewVideoFrame(vi), child->GetFrame(n, env), clip->GetFrame(n, env), env);
+    PVideoFrame dst = (v8) ? env->NewVideoFrameP(vi, &src1) : env->NewVideoFrame(vi);
+    return (this->*proc)(dst, src, src1, env);
 }
 
 AVSValue __cdecl Create_DPID(AVSValue args, void* user_data, IScriptEnvironment* env)
@@ -252,9 +275,12 @@ AVSValue __cdecl Create_DPID(AVSValue args, void* user_data, IScriptEnvironment*
     PClip clip = args[0].AsClip();
     const int width = args[1].AsInt();
     const int height = args[2].AsInt();
-    const double lambdaY = args[3].AsFloat(1.0);
-    const double src_leftY = args[6].AsFloat(0.0);
-    const double src_topY = args[9].AsFloat(0.0);
+    const float lambdaY = args[3].AsFloatf(1.0f);
+    const float lambdaU = args[4].AsFloatf(lambdaY);
+    const float src_leftY = args[6].AsFloatf(0.0f);
+    const float src_leftU = args[7].AsFloatf(src_leftY);
+    const float src_topY = args[9].AsFloatf(0.0f);
+    const float src_topU = args[10].AsFloatf(src_topY);
 
     const char* names[5] = { NULL, NULL, NULL, "src_left", "src_top" };
     AVSValue args_[5] = { clip, width, height, src_leftY, src_topY };
@@ -266,14 +292,14 @@ AVSValue __cdecl Create_DPID(AVSValue args, void* user_data, IScriptEnvironment*
         width,
         height,
         lambdaY,
-        args[4].AsFloat(lambdaY),
-        args[5].AsFloat(lambdaY),
+        lambdaU,
+        args[5].AsFloatf(lambdaU),
         src_leftY,
-        args[7].AsFloat(src_leftY),
-        args[8].AsFloat(src_leftY),
+        src_leftU,
+        args[8].AsFloatf(src_leftU),
         src_topY,
-        args[10].AsFloat(src_topY),
-        args[11].AsFloat(src_topY),
+        src_topU,
+        args[11].AsFloatf(src_topU),
         args[12].AsInt(-1),
         3,
         3,
@@ -283,9 +309,12 @@ AVSValue __cdecl Create_DPID(AVSValue args, void* user_data, IScriptEnvironment*
 
 AVSValue __cdecl Create_DPIDraw(AVSValue args, void* user_data, IScriptEnvironment* env)
 {
-    const double lambdaY = args[2].AsFloat(1.0);
-    const double src_leftY = args[5].AsFloat(0.0);
-    const double src_topY = args[8].AsFloat(0.0);
+    const float lambdaY = args[2].AsFloatf(1.0f);
+    const float lambdaU = args[3].AsFloatf(lambdaY);
+    const float src_leftY = args[5].AsFloatf(0.0f);
+    const float src_leftU = args[6].AsFloatf(src_leftY);
+    const float src_topY = args[8].AsFloatf(0.0f);
+    const float src_topU = args[9].AsFloatf(src_topY);
 
     return new dpid(
         args[0].AsClip(),
@@ -293,14 +322,14 @@ AVSValue __cdecl Create_DPIDraw(AVSValue args, void* user_data, IScriptEnvironme
         -1365,
         -1365,
         lambdaY,
-        args[3].AsFloat(lambdaY),
-        args[4].AsFloat(lambdaY),
+        lambdaU,
+        args[4].AsFloatf(lambdaU),
         src_leftY,
-        args[6].AsFloat(src_leftY),
-        args[7].AsFloat(src_leftY),
+        src_leftU,
+        args[7].AsFloatf(src_leftU),
         src_topY,
-        args[9].AsFloat(src_topY),
-        args[10].AsFloat(src_topY),
+        src_topU,
+        args[10].AsFloatf(src_topU),
         args[11].AsInt(-1),
         args[12].AsInt(3),
         args[13].AsInt(3),
