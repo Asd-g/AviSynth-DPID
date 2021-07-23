@@ -29,7 +29,7 @@ public:
     PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 };
 
-double contribution(double f, double x, double y, double sx, double ex, double sy, double ey)
+AVS_FORCEINLINE double contribution(double f, double x, double y, double sx, double ex, double sy, double ey)
 {
 
     if (x < sx)
@@ -109,13 +109,13 @@ PVideoFrame dpid::dpidProcess(PVideoFrame& dst, PVideoFrame& src1, PVideoFrame& 
                     double avg = 0.0;
                     for (int inner_y = -1; inner_y <= 1; ++inner_y)
                     {
+                        const int y = std::clamp(outer_y + inner_y, 0, dst_h - 1);
+
                         for (int inner_x = -1; inner_x <= 1; ++inner_x)
                         {
-                            int y = std::clamp(outer_y + inner_y, 0, dst_h - 1);
-                            int x = std::clamp(outer_x + inner_x, 0, dst_w - 1);
+                            const int x = std::clamp(outer_x + inner_x, 0, dst_w - 1);
 
-                            T pixel = downp[y * down_stride + x];
-                            avg += pixel * (2 - std::abs(inner_y)) * (2 - std::abs(inner_x));
+                            avg += downp[y * down_stride + x] * (2 - std::abs(inner_y)) * (2 - std::abs(inner_x));
                         }
                     }
 
@@ -140,9 +140,7 @@ PVideoFrame dpid::dpidProcess(PVideoFrame& dst, PVideoFrame& src1, PVideoFrame& 
                         for (int inner_x = sxr; inner_x < exr; ++inner_x)
                         {
                             T pixel = srcp[inner_y * src_stride + inner_x];
-                            double distance = std::abs(avg - static_cast<double>(pixel));
-                            double weight = std::pow(distance, lambda[i]);
-                            weight = contribution(weight, static_cast<double>(inner_x), static_cast<double>(inner_y), sx, ex, sy, ey);
+                            weight = contribution(std::pow(std::abs(avg - static_cast<double>(pixel)), lambda[i]), static_cast<double>(inner_x), static_cast<double>(inner_y), sx, ex, sy, ey);
 
                             sum_pixel += weight * pixel;
                             sum_weight += weight;
@@ -225,8 +223,8 @@ dpid::dpid(PClip _child, PClip _clip, int width, int height, double lambdaY, dou
         }
     }
 
-    hSubS = (planecount > 1 && !vi.IsRGB()) ? static_cast<double>(1LL << vi.GetPlaneWidthSubsampling(PLANAR_U)) : 0.0;
-    vSubS = (planecount > 1 && !vi.IsRGB()) ? static_cast<double>(1LL << vi.GetPlaneHeightSubsampling(PLANAR_U)) : 0.0;
+    hSubS = (planecount > 1 && !vi.IsRGB()) ? static_cast<double>(1 << vi.GetPlaneWidthSubsampling(PLANAR_U)) : 0.0;
+    vSubS = (planecount > 1 && !vi.IsRGB()) ? static_cast<double>(1 << vi.GetPlaneHeightSubsampling(PLANAR_U)) : 0.0;
 
     switch (vi.ComponentSize())
     {
