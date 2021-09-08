@@ -10,15 +10,15 @@ This is [a port of the VapourSynth plugin dpid](https://github.com/WolframRhodiu
 
 - AviSynth 2.60 / AviSynth+ 3.4 or later
 
-- Microsoft VisualC++ Redistributable Package 2022 (can be downloaded from [here](https://github.com/abbodi1406/vcredist/releases))
+- Microsoft VisualC++ Redistributable Package 2022 (can be downloaded from [here](https://github.com/abbodi1406/vcredist/releases)) (Windows only)
+
+- Avsresize (DPID only).
 
 ### Usage:
 
 ```
 DPID (clip input, int target_width, int target_height, float "lambdaY", float "lambdaU", float "lambdaV", float "src_leftY", float "src_leftU", float "src_leftV", float "src_topY", float "src_topU", float "src_topV", int "cloc")
 ```
-
-Avsresize required in order to use this function (DPID).
 
 ### Parameters:
 
