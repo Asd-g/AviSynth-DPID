@@ -1,4 +1,4 @@
-# Description
+## Description
 
 [dpid](http://www.gcc.tu-darmstadt.de/home/proj/dpid/) is an algorithm that preserves visually important details in downscaled images and is especially suited for large downscaling factors.
 
@@ -6,7 +6,13 @@ It acts like a convolutional filter where input pixels contribute more to the ou
 
 This is [a port of the VapourSynth plugin dpid](https://github.com/WolframRhodium/VapourSynth-dpid).
 
-# Usage
+### Requirements:
+
+- AviSynth 2.60 / AviSynth+ 3.4 or later
+
+- Microsoft VisualC++ Redistributable Package 2022 (can be downloaded from [here](https://github.com/abbodi1406/vcredist/releases))
+
+### Usage:
 
 ```
 DPID (clip input, int target_width, int target_height, float "lambdaY", float "lambdaU", float "lambdaV", float "src_leftY", float "src_leftU", float "src_leftV", float "src_topY", float "src_topU", float "src_topV", int "cloc")
@@ -14,7 +20,7 @@ DPID (clip input, int target_width, int target_height, float "lambdaY", float "l
 
 Avsresize required in order to use this function (DPID).
 
-## Parameters:
+### Parameters:
 
 - input\
     A clip to process. It must be in planar format.
@@ -57,7 +63,7 @@ Avsresize required in order to use this function (DPID).
 DPIDraw (clip input, clip input2, float "lambdaY", float "lambdaU", float "lambdaV", float "src_leftY", float "src_leftU", float "src_leftV", float "src_topY", float "src_topU", float "src_topV", int "cloc", int "y", int "u", int "v")
 ```
 
-## Parameters:
+### Parameters:
 
 - input\
     A clip to process. It must be in planar format.
@@ -99,26 +105,24 @@ DPIDraw (clip input, clip input2, float "lambdaY", float "lambdaU", float "lambd
     3: Process plane. Always process planes when clip is RGB.\
     Default: y = u = v = 3.
     
-# Building
+### Building:
 
-## Windows
+- Windows\
+    Use solution files.
 
-Use solution files.
-
-## Linux
-
-### Requirements
-
-- Git
-- C++17 compiler
-- CMake >= 3.16
-
-```
-git clone https://github.com/Asd-g/AviSynth-DPID && \
-cd AviSynth-DPID && \
-mkdir build && \
-cd build && \
-cmake .. && \
-make -j$(nproc) && \
-sudo make install
-```
+- Linux
+    ```
+    Requirements:
+        - Git
+        - C++17 compiler
+        - CMake >= 3.16
+    ```
+    ```
+    git clone https://github.com/Asd-g/AviSynth-DPID && \
+    cd AviSynth-DPID && \
+    mkdir build && \
+    cd build && \
+    cmake .. && \
+    make -j$(nproc) && \
+    sudo make install
+    ```
