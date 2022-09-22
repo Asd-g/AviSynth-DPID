@@ -6,14 +6,13 @@
 class dpid : public GenericVideoFilter
 {
     PClip clip;
-    double lambda[3];
-    double src_left[3], src_top[3];
-    int process[3];
+    double lambda[4];
+    double src_left[4];
+    double src_top[4];
+    int process[4];
     int64_t read_chromaloc;
-    int planes_y[3], planes_r[3];
-    int* planes;
-    int planecount;
-    double hSubS, vSubS;
+    double hSubS;
+    double vSubS;
     bool v8;
     bool colsp;
 
@@ -22,8 +21,8 @@ class dpid : public GenericVideoFilter
     PVideoFrame(dpid::* proc)(PVideoFrame& dst, PVideoFrame& src1, PVideoFrame& src2, IScriptEnvironment* env);
 
 public:
-    dpid(PClip _child, PClip _clip, int width, int height, double lambdaY, double lambdaU, double lamdbaV, double src_leftY, double src_leftU, double src_leftV, double src_topY,
-        double src_topU, double src_topV, int _read_chromaloc, int y, int u, int v, IScriptEnvironment* env);
+    dpid(PClip _child, PClip _clip, int width, int height, double lambdaY, double lambdaU, double lamdbaV, double lamdbaA, double src_leftY, double src_leftU, double src_leftV, double src_leftA,
+        double src_topY, double src_topU, double src_topV, double src_topA, int _read_chromaloc, int y, int u, int v, int a, IScriptEnvironment* env);
 
     int __stdcall SetCacheHints(int cachehints, int frame_range) override
     {
@@ -54,7 +53,11 @@ AVS_FORCEINLINE double contribution(double f, double x, double y, double sx, dou
 template <typename T>
 PVideoFrame dpid::dpidProcess(PVideoFrame& dst, PVideoFrame& src1, PVideoFrame& src2, IScriptEnvironment* env)
 {
-    for (int i = 0; i < planecount; ++i)
+    const int planes_y[4] = {PLANAR_Y, PLANAR_U, PLANAR_V, PLANAR_A};
+    const int planes_r[4] = {PLANAR_R, PLANAR_G, PLANAR_B, PLANAR_A};
+    const int* planes = (vi.IsRGB()) ? planes_r : planes_y;
+
+    for (int i = 0; i < vi.NumComponents(); ++i)
     {
         if (process[i] == 3)
         {
@@ -171,9 +174,10 @@ PVideoFrame dpid::dpidProcess(PVideoFrame& dst, PVideoFrame& src1, PVideoFrame& 
     return dst;
 }
 
-dpid::dpid(PClip _child, PClip _clip, int width, int height, double lambdaY, double lambdaU, double lambdaV, double src_leftY, double src_leftU, double src_leftV, double src_topY,
-    double src_topU, double src_topV, int _read_chromaloc, int y, int u, int v, IScriptEnvironment* env)
-    : GenericVideoFilter(_child), clip(_clip), lambda{ lambdaY, lambdaU, lambdaV }, src_left{ src_leftY, src_leftU, src_leftV }, src_top{ src_topY, src_topU, src_topV }, read_chromaloc(_read_chromaloc)
+dpid::dpid(PClip _child, PClip _clip, int width, int height, double lambdaY, double lambdaU, double lambdaV, double lambdaA, double src_leftY, double src_leftU, double src_leftV, double src_leftA,
+    double src_topY, double src_topU, double src_topV, double src_topA, int _read_chromaloc, int y, int u, int v, int a, IScriptEnvironment* env)
+    : GenericVideoFilter(_child), clip(_clip), lambda{ lambdaY, lambdaU, lambdaV, lambdaA }, src_left{ src_leftY, src_leftU, src_leftV, src_leftA }, src_top{ src_topY, src_topU, src_topV, src_topA },
+    read_chromaloc(_read_chromaloc)
 {
     if (width == -1365)
     {
@@ -186,7 +190,7 @@ dpid::dpid(PClip _child, PClip _clip, int width, int height, double lambdaY, dou
             env->ThrowError("DPIDraw: clip and clip1 doesn't have the same colorspace.");
         if (vi.num_frames != vi1.num_frames)
             env->ThrowError("DPIDraw: clip and clip1 must have the same number of frames.");
-        for (int i = 0; i < 3; ++i)
+        for (int i = 0; i < 4; ++i)
         {
             if (lambda[i] < 0.1)
                 env->ThrowError("DPIDraw: lambda must be greater than 0.1.");
@@ -207,7 +211,7 @@ dpid::dpid(PClip _child, PClip _clip, int width, int height, double lambdaY, dou
     {
         if (!vi.IsPlanar())
             env->ThrowError("DPID: only planar formats are supported.");
-        for (int i = 0; i < 3; ++i)
+        for (int i = 0; i < 4; ++i)
         {
             if (lambda[i] < 0.1)
                 env->ThrowError("DPID: lambda must be greater than 0.1.");
@@ -219,18 +223,12 @@ dpid::dpid(PClip _child, PClip _clip, int width, int height, double lambdaY, dou
         vi.height = height;
     }
 
-    const int pl_y[3] = { PLANAR_Y, PLANAR_U, PLANAR_V };
-    const int pl_r[3] = { PLANAR_R, PLANAR_G, PLANAR_B };
-    std::copy(std::begin(pl_y), std::end(pl_y), std::begin(planes_y));
-    std::copy(std::begin(pl_r), std::end(pl_r), std::begin(planes_r));
-    planes = (vi.IsRGB()) ? planes_r : planes_y;
-    const int p[3] = { y, u, v };
-    planecount = std::min(vi.NumComponents(), 3);
+    const int p[4] = { y, u, v, a };
 
-    for (int i = 0; i < planecount; ++i)
+    for (int i = 0; i < vi.NumComponents(); ++i)
     {
         if (vi.IsRGB())
-            process[i] = 3;
+            process[i] = (i < 4) ? 3 : a;
         else
         {
             switch (p[i])
@@ -242,8 +240,16 @@ dpid::dpid(PClip _child, PClip _clip, int width, int height, double lambdaY, dou
         }
     }
 
-    hSubS = (planecount > 1 && !vi.IsRGB()) ? static_cast<double>(1 << vi.GetPlaneWidthSubsampling(PLANAR_U)) : 0.0;
-    vSubS = (planecount > 1 && !vi.IsRGB()) ? static_cast<double>(1 << vi.GetPlaneHeightSubsampling(PLANAR_U)) : 0.0;
+    if (vi.NumComponents() > 1 && !vi.IsRGB())
+    {
+        hSubS = static_cast<double>(1 << vi.GetPlaneWidthSubsampling(PLANAR_U));
+        vSubS = static_cast<double>(1 << vi.GetPlaneHeightSubsampling(PLANAR_U));
+    }
+    else
+    {
+        hSubS = 0.0;
+        vSubS = 0.0;
+    }
 
     switch (vi.ComponentSize())
     {
@@ -252,10 +258,7 @@ dpid::dpid(PClip _child, PClip _clip, int width, int height, double lambdaY, dou
         default: proc = &dpid::dpidProcess<float>; break;
     }
 
-    v8 = true;
-    try { env->CheckVersion(8); }
-    catch (const AvisynthError&) { v8 = false; }
-
+    v8 = env->FunctionExists("propShow");
     if (!v8)
         read_chromaloc = (read_chromaloc == -1) ? 0 : read_chromaloc;
 
@@ -272,15 +275,17 @@ PVideoFrame __stdcall dpid::GetFrame(int n, IScriptEnvironment* env)
 
 AVSValue __cdecl Create_DPID(AVSValue args, void* user_data, IScriptEnvironment* env)
 {
-    PClip clip = args[0].AsClip();
-    const int width = args[1].AsInt();
-    const int height = args[2].AsInt();
-    const float lambdaY = args[3].AsFloatf(1.0f);
-    const float lambdaU = args[4].AsFloatf(lambdaY);
-    const float src_leftY = args[6].AsFloatf(0.0f);
-    const float src_leftU = args[7].AsFloatf(src_leftY);
-    const float src_topY = args[9].AsFloatf(0.0f);
-    const float src_topU = args[10].AsFloatf(src_topY);
+    enum { Clip, Width, Height, LambdaY, LambdaU, LambdaV, LambdaA, Src_leftY, Src_leftU, Src_leftV, Src_leftA, Src_topY, Src_topU, Src_topV, Src_topA, Cloc };
+
+    PClip clip = args[Clip].AsClip();
+    const int width = args[Width].AsInt();
+    const int height = args[Height].AsInt();
+    const float lambdaY = args[LambdaY].AsFloatf(1.0f);
+    const float lambdaU = args[LambdaU].AsFloatf(lambdaY);
+    const float src_leftY = args[Src_leftY].AsFloatf(0.0f);
+    const float src_leftU = args[Src_leftU].AsFloatf(src_leftY);
+    const float src_topY = args[Src_topY].AsFloatf(0.0f);
+    const float src_topU = args[Src_topU].AsFloatf(src_topY);
 
     const char* names[5] = { NULL, NULL, NULL, "src_left", "src_top" };
     AVSValue args_[5] = { clip, width, height, src_leftY, src_topY };
@@ -293,14 +298,18 @@ AVSValue __cdecl Create_DPID(AVSValue args, void* user_data, IScriptEnvironment*
         height,
         lambdaY,
         lambdaU,
-        args[5].AsFloatf(lambdaU),
+        args[LambdaV].AsFloatf(lambdaU),
+        args[LambdaA].AsFloatf(lambdaY),
         src_leftY,
         src_leftU,
-        args[8].AsFloatf(src_leftU),
+        args[Src_leftV].AsFloatf(src_leftU),
+        args[Src_leftA].AsFloatf(src_leftY),
         src_topY,
         src_topU,
-        args[11].AsFloatf(src_topU),
-        args[12].AsInt(-1),
+        args[Src_topV].AsFloatf(src_topU),
+        args[Src_topA].AsFloatf(src_topY),
+        args[Cloc].AsInt(-1),
+        3,
         3,
         3,
         3,
@@ -309,31 +318,37 @@ AVSValue __cdecl Create_DPID(AVSValue args, void* user_data, IScriptEnvironment*
 
 AVSValue __cdecl Create_DPIDraw(AVSValue args, void* user_data, IScriptEnvironment* env)
 {
-    const float lambdaY = args[2].AsFloatf(1.0f);
-    const float lambdaU = args[3].AsFloatf(lambdaY);
-    const float src_leftY = args[5].AsFloatf(0.0f);
-    const float src_leftU = args[6].AsFloatf(src_leftY);
-    const float src_topY = args[8].AsFloatf(0.0f);
-    const float src_topU = args[9].AsFloatf(src_topY);
+    enum { Clip, Clip1, LambdaY, LambdaU, LambdaV, LambdaA, Src_leftY, Src_leftU, Src_leftV, Src_leftA, Src_topY, Src_topU, Src_topV, Src_topA, Cloc, Y, U, V, A };
+
+    const float lambdaY = args[LambdaY].AsFloatf(1.0f);
+    const float lambdaU = args[LambdaU].AsFloatf(lambdaY);
+    const float src_leftY = args[Src_leftY].AsFloatf(0.0f);
+    const float src_leftU = args[Src_leftU].AsFloatf(src_leftY);
+    const float src_topY = args[Src_topY].AsFloatf(0.0f);
+    const float src_topU = args[Src_topU].AsFloatf(src_topY);
 
     return new dpid(
-        args[0].AsClip(),
-        args[1].AsClip(),
+        args[Clip].AsClip(),
+        args[Clip1].AsClip(),
         -1365,
         -1365,
         lambdaY,
         lambdaU,
-        args[4].AsFloatf(lambdaU),
+        args[LambdaV].AsFloatf(lambdaU),
+        args[LambdaA].AsFloatf(lambdaY),
         src_leftY,
         src_leftU,
-        args[7].AsFloatf(src_leftU),
+        args[Src_leftV].AsFloatf(src_leftU),
+        args[Src_leftA].AsFloatf(src_leftY),
         src_topY,
         src_topU,
-        args[10].AsFloatf(src_topU),
-        args[11].AsInt(-1),
-        args[12].AsInt(3),
-        args[13].AsInt(3),
-        args[14].AsInt(3),
+        args[Src_topV].AsFloatf(src_topU),
+        args[Src_topA].AsFloatf(src_topY),
+        args[Cloc].AsInt(-1),
+        args[Y].AsInt(3),
+        args[U].AsInt(3),
+        args[V].AsInt(3),
+        args[A].AsInt(1),
         env);
 }
 
@@ -344,8 +359,8 @@ const char* __stdcall AvisynthPluginInit3(IScriptEnvironment * env, const AVS_Li
 {
     AVS_linkage = vectors;
 
-    env->AddFunction("DPID", "cii[lambdaY]f[lambdaU]f[lambdaV]f[src_leftY]f[src_leftU]f[src_leftV]f[src_topY]f[src_topU]f[src_topV]f[cloc]i", Create_DPID, 0);
-    env->AddFunction("DPIDraw", "cc[lambdaY]f[lambdaU]f[lambdaV]f[src_leftY]f[src_leftU]f[src_leftV]f[src_topY]f[src_topU]f[src_topV]f[cloc]i[y]i[u]i[v]i", Create_DPIDraw, 0);
+    env->AddFunction("DPID", "cii[lambdaY]f[lambdaU]f[lambdaV]f[lambdaA]f[src_leftY]f[src_leftU]f[src_leftV]f[src_leftA]f[src_topY]f[src_topU]f[src_topV]f[src_topA]f[cloc]i", Create_DPID, 0);
+    env->AddFunction("DPIDraw", "cc[lambdaY]f[lambdaU]f[lambdaV]f[lambdaA]f[src_leftY]f[src_leftU]f[src_leftV]f[src_leftA]f[src_topY]f[src_topU]f[src_topV]f[src_topA]f[cloc]i[y]i[u]i[v]i[a]i", Create_DPIDraw, 0);
 
     return "DPID";
 }
