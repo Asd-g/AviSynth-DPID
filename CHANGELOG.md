@@ -3,4 +3,4 @@
     ~50% faster binary.
 
 ##### 1.0.0:
-    Port of the VapourSynth plugin DeDot.
+    Port of the VapourSynth plugin DPID r4.
